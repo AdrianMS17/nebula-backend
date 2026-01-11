@@ -101,13 +101,10 @@ const projectConfig = {
   redis_url: REDIS_URL
 };
 
+
 /** @type {import('@medusajs/medusa').ConfigModule} */
 module.exports = {
   projectConfig,
   plugins,
   modules,
-
-  featureFlags: {
-    tax_inclusive_pricing: true,
-  },
 };
