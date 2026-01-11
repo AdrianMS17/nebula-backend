@@ -54,13 +54,22 @@ const fileServicePlugin = cloudinaryConfigured
     resolve: `@medusajs/file-local`,
     options: {
       upload_dir: "uploads",
-      backend_url: process.env.BACKEND_URL || "http://localhost:9000", // <--- LÍNEA MÁGICA CORRECTA
+      backend_url: process.env.BACKEND_URL || "http://localhost:9000",
     },
   };
 
 const plugins = [
   `medusa-fulfillment-manual`,
   `medusa-payment-manual`,
+  // --- INICIO BLOQUE STRIPE ---
+  {
+    resolve: `medusa-payment-stripe`,
+    options: {
+      api_key: process.env.STRIPE_API_KEY,
+      webhook_secret: process.env.STRIPE_WEBHOOK_SECRET,
+    },
+  },
+  // --- FIN BLOQUE STRIPE ---
   fileServicePlugin,
   {
     resolve: "@medusajs/admin",
