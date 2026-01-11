@@ -107,3 +107,15 @@ module.exports = {
   plugins,
   modules,
 };
+
+/** @type {import('@medusajs/medusa').ConfigModule} */
+module.exports = {
+  projectConfig,
+  plugins,
+  modules,
+
+  featureFlags: {
+    tax_inclusive_pricing: true,
+  },
+};
+
