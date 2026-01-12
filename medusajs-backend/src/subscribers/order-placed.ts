@@ -4,6 +4,9 @@ import {
 } from "@medusajs/medusa"
 import { Resend } from 'resend';
 
+// 👇 He puesto tu email directamente aquí para que funcione ya
+const MY_ADMIN_EMAIL = "adrianms17@gmail.com"; 
+
 export default async function handleOrderPlaced({ 
   data, 
   eventName, 
@@ -12,13 +15,14 @@ export default async function handleOrderPlaced({
 }: SubscriberArgs<Record<string, any>>) {
   
   const orderService = container.resolve("orderService")
+  // Recuperamos la orden con todos sus datos necesarios
   const order = await orderService.retrieve(data.id, {
     relations: ["items", "shipping_address", "payments"],
   })
 
   const resend = new Resend(process.env.RESEND_API_KEY);
 
-  // Matemáticas para el desglose visual
+  // --- CÁLCULOS MATEMÁTICOS ---
   let finalTotal = order.total;
   if (!finalTotal && order.payments?.length) {
       finalTotal = order.payments[0].amount;
@@ -27,7 +31,9 @@ export default async function handleOrderPlaced({
   const totalEuro = finalTotal / 100;
   const baseImponible = totalEuro / 1.21;
   const ivaTotal = totalEuro - baseImponible;
+  const totalDisplay = totalEuro.toFixed(2);
 
+  // --- GENERACIÓN DEL HTML DE LOS PRODUCTOS ---
   const itemsHtml = order.items.map(item => {
     const priceWithTax = (item.unit_price * 1.21) / 100; 
     return `<li style="margin-bottom: 10px; border-bottom: 1px dashed #334155; padding-bottom: 10px;">
@@ -38,11 +44,12 @@ export default async function handleOrderPlaced({
      </li>`;
   }).join("");
 
-  const totalDisplay = totalEuro.toFixed(2);
-
   try {
-    const response = await resend.emails.send({
-      from: 'Nebula Store <onboarding@resend.dev>', // Recuerda: En producción cambiarás esto por tu dominio
+    // ---------------------------------------------------------
+    // 1. EMAIL AL CLIENTE (Diseño Nebula Dark)
+    // ---------------------------------------------------------
+    await resend.emails.send({
+      from: 'Nebula Store <onboarding@resend.dev>', 
       to: [order.email],
       subject: `Confirmación de pedido #${order.display_id}`,
       html: `
@@ -90,20 +97,42 @@ export default async function handleOrderPlaced({
           <div style="border-top: 1px solid #334155; padding-top: 20px; margin-top: 40px; font-size: 12px; color: #64748b; text-align: center;">
             <p>Nebula Digital Store &copy; 2026</p>
             <p style="margin-top: 10px;">
-              Este documento sirve como comprobante de pedido.<br>
-              <strong>¿Necesitas una factura detallada con validez fiscal?</strong><br>
-              Simplemente responde a este correo solicitándola y te la enviaremos en PDF.
+              ¿Necesitas factura? Responde a este correo solicitándola.
             </p>
           </div>
-
         </div>
       `,
-    }) as any;
+    });
 
-    console.log("Email enviado con éxito a:", order.email);
+    // ---------------------------------------------------------
+    // 2. EMAIL AL ADMINISTRADOR (Avisándote a ti)
+    // ---------------------------------------------------------
+    await resend.emails.send({
+      from: 'Nebula Bot <onboarding@resend.dev>',
+      to: [MY_ADMIN_EMAIL], 
+      subject: `🤑 NUEVA VENTA: ${totalDisplay}€ (Pedido #${order.display_id})`,
+      html: `
+        <div style="font-family: sans-serif; border: 1px solid #ccc; padding: 20px;">
+          <h2 style="color: green;">¡Caja! 💰 Nueva Venta Confirmada</h2>
+          
+          <p><strong>Pedido:</strong> #${order.display_id}</p>
+          <p><strong>Cliente:</strong> ${order.email}</p>
+          <p><strong>Total:</strong> ${totalDisplay} €</p>
+          
+          <h3>Artículos vendidos:</h3>
+          <ul style="background: #f1f5f9; padding: 15px;">
+            ${itemsHtml} 
+          </ul>
+          
+          <p><em>Este correo es una notificación interna automática.</em></p>
+        </div>
+      `,
+    });
+
+    console.log(`✅ Emails enviados: Confirmación a ${order.email} y Alerta a Admin.`);
 
   } catch (err) {
-    console.error("Fallo crítico enviando email:", err);
+    console.error("❌ Fallo crítico enviando emails:", err);
   }
 }
 
