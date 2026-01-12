@@ -12,21 +12,29 @@ export default async function handleOrderShipped({
 }: SubscriberArgs<Record<string, any>>) {
   
   const orderService = container.resolve("orderService")
+  const fulfillmentService = container.resolve("fulfillmentService") // <--- NUEVO: Necesitamos esto
   
-  // 1. Recuperamos el pedido y sus datos
-  const order = await orderService.retrieve(data.order_id, {
-    relations: ["items", "shipping_address", "fulfillments"],
-  })
-
-  // 2. Buscamos el tracking específico de este envío
-  // data.id es el ID del Fulfillment que se acaba de crear/actualizar
-  const fulfillment = order.fulfillments.find(f => f.id === data.id);
-  const trackingNumbers = fulfillment?.tracking_numbers || [];
-  const trackingDisplay = trackingNumbers.length > 0 ? trackingNumbers.join(", ") : "Pendiente";
-
-  const resend = new Resend(process.env.RESEND_API_KEY);
-
   try {
+    // 1. PRIMERO: Buscamos el Fulfillment (Envío) usando el ID que nos da el evento
+    // (Porque el evento a veces no nos da el order_id directamente)
+    const fulfillment = await fulfillmentService.retrieve(data.id);
+
+    if (!fulfillment) {
+      console.error("❌ No se encontró el fulfillment con ID:", data.id);
+      return;
+    }
+
+    // 2. AHORA SÍ: Usamos el order_id que viene dentro del fulfillment para sacar el pedido
+    const order = await orderService.retrieve(fulfillment.order_id, {
+      relations: ["items", "shipping_address", "fulfillments"],
+    })
+
+    // 3. Sacamos los trackings directamente del fulfillment que ya hemos buscado
+    const trackingNumbers = fulfillment.tracking_numbers || [];
+    const trackingDisplay = trackingNumbers.length > 0 ? trackingNumbers.join(", ") : "Pendiente";
+
+    const resend = new Resend(process.env.RESEND_API_KEY);
+
     console.log(`🚚 Enviando email de tracking para pedido #${order.display_id}...`);
 
     await resend.emails.send({
@@ -73,9 +81,8 @@ export default async function handleOrderShipped({
   }
 }
 
-// CONFIGURACIÓN DEL LISTENER
 export const config: SubscriberConfig = {
-  event: "order.shipment_created", // <--- ESTE ES EL GATILLO CLAVE
+  event: "order.shipment_created",
   context: {
     subscriberId: "order-shipped-handler",
   },
