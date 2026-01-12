@@ -21,34 +21,38 @@ export default async function handleOrderPlaced({
 
   const resend = new Resend(process.env.RESEND_API_KEY);
 
-  // --- CÁLCULOS MATEMÁTICOS ---
+  // --- CÁLCULOS MATEMÁTICOS INVERSOS ---
+  // Partimos de que el TOTAL de la orden es el precio final con IVA incluido
   let finalTotal = order.total;
   if (!finalTotal && order.payments?.length) {
       finalTotal = order.payments[0].amount;
   }
   
   const totalEuro = finalTotal / 100;
+  
+  // Desglosamos: Base = Total / 1.21
   const baseImponible = totalEuro / 1.21;
   const ivaTotal = totalEuro - baseImponible;
   const totalDisplay = totalEuro.toFixed(2);
 
   // --- HTML PRODUCTOS ---
+  // Aquí YA NO multiplicamos por 1.21, usamos el precio directo de Medusa
   const itemsHtml = order.items.map(item => {
-    const priceWithTax = (item.unit_price * 1.21) / 100; 
+    const priceUnit = item.unit_price / 100; 
     return `<li style="margin-bottom: 10px; border-bottom: 1px dashed #334155; padding-bottom: 10px;">
        <div style="display: flex; justify-content: space-between;">
          <span><strong>${item.title}</strong> x ${item.quantity}</span>
-         <span>${priceWithTax.toFixed(2)} €</span>
+         <span>${priceUnit.toFixed(2)} €</span>
        </div>
      </li>`;
   }).join("");
 
   try {
     // ---------------------------------------------------------
-    // 1. EMAIL AL CLIENTE (Desde tu dominio oficial)
+    // 1. EMAIL AL CLIENTE
     // ---------------------------------------------------------
     await resend.emails.send({
-      from: 'Nebula Store <hola@nebuladigital.es>', // <--- CAMBIO AQUÍ
+      from: 'Nebula Store <hola@nebuladigital.es>', 
       to: [order.email],
       subject: `Confirmación de pedido #${order.display_id}`,
       html: `
@@ -71,7 +75,7 @@ export default async function handleOrderPlaced({
             <div style="margin-top: 20px; padding-top: 15px; text-align: right;">
                <table style="width: 100%; color: #94a3b8; font-size: 14px;">
                  <tr>
-                   <td style="text-align: right;">Base:</td>
+                   <td style="text-align: right;">Base Imponible:</td>
                    <td style="text-align: right; width: 80px;">${baseImponible.toFixed(2)} €</td>
                  </tr>
                  <tr>
@@ -104,10 +108,10 @@ export default async function handleOrderPlaced({
     });
 
     // ---------------------------------------------------------
-    // 2. EMAIL AL ADMINISTRADOR (A ti)
+    // 2. EMAIL AL ADMINISTRADOR
     // ---------------------------------------------------------
     await resend.emails.send({
-      from: 'Nebula Bot <hola@nebuladigital.es>', // <--- CAMBIO AQUÍ TAMBIÉN
+      from: 'Nebula Bot <hola@nebuladigital.es>',
       to: [MY_ADMIN_EMAIL], 
       subject: `🤑 NUEVA VENTA: ${totalDisplay}€ (Pedido #${order.display_id})`,
       html: `
