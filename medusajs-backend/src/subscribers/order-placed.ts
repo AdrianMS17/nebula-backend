@@ -78,6 +78,7 @@ export default async function handleOrderPlaced({
   } catch (err) {
     console.error("Fallo crítico enviando email:", err);
   }
+}
 
 export const config: SubscriberConfig = {
   event: "order.placed",
