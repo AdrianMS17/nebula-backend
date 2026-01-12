@@ -12,30 +12,60 @@ export default async function handleOrderShipped({
 }: SubscriberArgs<Record<string, any>>) {
   
   const orderService = container.resolve("orderService")
-  const fulfillmentService = container.resolve("fulfillmentService") // <--- NUEVO: Necesitamos esto
-  
-  try {
-    // 1. PRIMERO: Buscamos el Fulfillment (Envío) usando el ID que nos da el evento
-    // (Porque el evento a veces no nos da el order_id directamente)
-    const fulfillment = await fulfillmentService.retrieve(data.id);
+  const fulfillmentService = container.resolve("fulfillmentService")
+  const resend = new Resend(process.env.RESEND_API_KEY);
 
-    if (!fulfillment) {
-      console.error("❌ No se encontró el fulfillment con ID:", data.id);
-      return;
+  const id = data.id;
+  let order;
+  let trackingDisplay = "Pendiente";
+
+  try {
+    // --- LÓGICA HÍBRIDA (DETECTIVE DE IDs) ---
+    
+    // CASO A: El evento nos ha dado un ID de PEDIDO (Lo que dicen tus logs: order_...)
+    if (id.startsWith("order_")) {
+        console.log(`🔍 Detectado ID de Pedido: ${id}. Buscando orden directa...`);
+        order = await orderService.retrieve(id, {
+            relations: ["items", "shipping_address", "fulfillments"],
+        });
+
+        // Como tenemos el pedido pero no sabemos qué envío exacto disparó el evento,
+        // cogemos el último fulfillment que tenga tracking numbers.
+        if (order.fulfillments && order.fulfillments.length > 0) {
+            // Ordenamos por fecha para coger el más reciente
+            const lastFulfillment = order.fulfillments.sort((a: any, b: any) => 
+                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            )[0];
+
+            if (lastFulfillment && lastFulfillment.tracking_numbers?.length) {
+                trackingDisplay = lastFulfillment.tracking_numbers.join(", ");
+            }
+        }
+    } 
+    // CASO B: El evento nos da un ID de ENVÍO (El estándar de Medusa: ful_...)
+    else if (id.startsWith("ful_")) {
+        console.log(`📦 Detectado ID de Fulfillment: ${id}. Buscando envío...`);
+        const fulfillment = await fulfillmentService.retrieve(id);
+        order = await orderService.retrieve(fulfillment.order_id, {
+            relations: ["items", "shipping_address", "fulfillments"],
+        });
+        
+        const trackingNumbers = fulfillment.tracking_numbers || [];
+        if (trackingNumbers.length > 0) {
+            trackingDisplay = trackingNumbers.join(", ");
+        }
+    } else {
+        console.warn(`⚠️ ID desconocido recibido: ${id}`);
+        return;
     }
 
-    // 2. AHORA SÍ: Usamos el order_id que viene dentro del fulfillment para sacar el pedido
-    const order = await orderService.retrieve(fulfillment.order_id, {
-      relations: ["items", "shipping_address", "fulfillments"],
-    })
+    if (!order) {
+        console.error("❌ Error Crítico: No se pudo recuperar el pedido.");
+        return;
+    }
 
-    // 3. Sacamos los trackings directamente del fulfillment que ya hemos buscado
-    const trackingNumbers = fulfillment.tracking_numbers || [];
-    const trackingDisplay = trackingNumbers.length > 0 ? trackingNumbers.join(", ") : "Pendiente";
-
-    const resend = new Resend(process.env.RESEND_API_KEY);
-
-    console.log(`🚚 Enviando email de tracking para pedido #${order.display_id}...`);
+    // --- ENVIAR EMAIL ---
+    console.log(`🚚 Enviando email a ${order.email} (Tracking: ${trackingDisplay})...`);
 
     await resend.emails.send({
       from: 'Nebula Store <hola@nebuladigital.es>', 
@@ -74,10 +104,10 @@ export default async function handleOrderShipped({
       `,
     });
 
-    console.log(`✅ Email de ENVÍO mandado a ${order.email} con tracking: ${trackingDisplay}`);
+    console.log(`✅ Email ENVIADO correctamente.`);
 
   } catch (err) {
-    console.error("❌ Fallo enviando email de envío:", err);
+    console.error("❌ Fallo en el proceso de email:", err);
   }
 }
 
