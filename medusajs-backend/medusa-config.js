@@ -108,7 +108,11 @@ const projectConfig = {
   database_url: DATABASE_URL,
   admin_cors: ADMIN_CORS,
   // Uncomment the following lines to enable REDIS
-  redis_url: REDIS_URL
+  redis_url: process.env.REDIS_URL,
+  cookie_options: {
+    sameSite: "none", 
+    secure: true,
+  },
 };
 
 
