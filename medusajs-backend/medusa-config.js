@@ -110,8 +110,9 @@ const projectConfig = {
   // Uncomment the following lines to enable REDIS
   redis_url: process.env.REDIS_URL,
   cookie_options: {
-    sameSite: "none", 
+    sameSite: "lax", 
     secure: true,
+    domain: ".nebuladigital.es"
   },
 };
 
