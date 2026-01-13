@@ -19,53 +19,71 @@ export default async function handleOrderShipped({
   let order;
   let trackingDisplay = "Pendiente";
 
+  console.log(`🔍 PROCESANDO ENVÍO. ID recibido: ${id}`);
+
   try {
-    // --- LÓGICA HÍBRIDA (DETECTIVE DE IDs) ---
+    // --- LÓGICA HÍBRIDA MEJORADA ---
     
-    // CASO A: El evento nos ha dado un ID de PEDIDO (Lo que dicen tus logs: order_...)
+    // CASO A: ID de PEDIDO (order_...)
     if (id.startsWith("order_")) {
-        console.log(`🔍 Detectado ID de Pedido: ${id}. Buscando orden directa...`);
+        console.log(`👉 Es un Order ID. Buscando fulfillment más reciente...`);
         order = await orderService.retrieve(id, {
-            relations: ["items", "shipping_address", "fulfillments"],
+            // AÑADIDO: "fulfillments.tracking_links" para asegurar que traemos todo
+            relations: ["items", "shipping_address", "fulfillments", "fulfillments.tracking_links"],
         });
 
-        // Como tenemos el pedido pero no sabemos qué envío exacto disparó el evento,
-        // cogemos el último fulfillment que tenga tracking numbers.
         if (order.fulfillments && order.fulfillments.length > 0) {
-            // Ordenamos por fecha para coger el más reciente
+            // Ordenamos por fecha para coger el último creado
             const lastFulfillment = order.fulfillments.sort((a: any, b: any) => 
                 new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
             )[0];
 
-            if (lastFulfillment && lastFulfillment.tracking_numbers?.length) {
+            console.log("📦 Fulfillment encontrado:", lastFulfillment.id);
+            console.log("🔢 Tracking Numbers:", lastFulfillment.tracking_numbers);
+            console.log("🔗 Tracking Links:", lastFulfillment.tracking_links);
+
+            // 1. Intentamos leer tracking_numbers (Array simple)
+            if (lastFulfillment.tracking_numbers?.length > 0) {
                 trackingDisplay = lastFulfillment.tracking_numbers.join(", ");
+            } 
+            // 2. Si falla, intentamos leer tracking_links (Objetos)
+            else if (lastFulfillment.tracking_links?.length > 0) {
+                trackingDisplay = lastFulfillment.tracking_links.map((t: any) => t.tracking_number).join(", ");
             }
         }
     } 
-    // CASO B: El evento nos da un ID de ENVÍO (El estándar de Medusa: ful_...)
+    // CASO B: ID de FULFILLMENT (ful_...)
     else if (id.startsWith("ful_")) {
-        console.log(`📦 Detectado ID de Fulfillment: ${id}. Buscando envío...`);
-        const fulfillment = await fulfillmentService.retrieve(id);
-        order = await orderService.retrieve(fulfillment.order_id, {
-            relations: ["items", "shipping_address", "fulfillments"],
+        console.log(`👉 Es un Fulfillment ID. Buscando directo...`);
+        // Recuperamos el fulfillment con sus enlaces
+        const fulfillment = await fulfillmentService.retrieve(id, {
+            relations: ["tracking_links"]
         });
         
-        const trackingNumbers = fulfillment.tracking_numbers || [];
-        if (trackingNumbers.length > 0) {
-            trackingDisplay = trackingNumbers.join(", ");
+        order = await orderService.retrieve(fulfillment.order_id, {
+            relations: ["items", "shipping_address"],
+        });
+
+        console.log("🔢 Tracking Numbers:", fulfillment.tracking_numbers);
+        console.log("🔗 Tracking Links:", fulfillment.tracking_links);
+        
+        if (fulfillment.tracking_numbers?.length > 0) {
+            trackingDisplay = fulfillment.tracking_numbers.join(", ");
+        } else if (fulfillment.tracking_links?.length > 0) {
+            trackingDisplay = fulfillment.tracking_links.map((t: any) => t.tracking_number).join(", ");
         }
     } else {
         console.warn(`⚠️ ID desconocido recibido: ${id}`);
-        return;
+        return; // Salimos si no entendemos el ID
     }
 
     if (!order) {
-        console.error("❌ Error Crítico: No se pudo recuperar el pedido.");
+        console.error("❌ Error: No se pudo recuperar el pedido.");
         return;
     }
 
     // --- ENVIAR EMAIL ---
-    console.log(`🚚 Enviando email a ${order.email} (Tracking: ${trackingDisplay})...`);
+    console.log(`🚚 Enviando email a ${order.email} (Tracking Final: ${trackingDisplay})...`);
 
     await resend.emails.send({
       from: 'Nebula Store <hola@nebuladigital.es>', 
