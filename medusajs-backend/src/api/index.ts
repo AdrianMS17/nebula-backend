@@ -8,9 +8,11 @@ import { getConfigFile } from "medusa-core-utils"
 export default (rootDirectory) => {
   const router = Router()
   
-  // Configuración básica para permitir que tu frontend hable con esta ruta
+  // Cargamos la configuración
   const { configModule } = getConfigFile(rootDirectory, "medusa-config")
-  const { projectConfig } = configModule
+  
+  // 👇 IMPORTANTE: El "as any" es vital para que no falle el build
+  const { projectConfig } = configModule as any
   
   const corsOptions = {
     origin: projectConfig.store_cors.split(","),
@@ -20,19 +22,15 @@ export default (rootDirectory) => {
   router.use(cors(corsOptions))
   router.use(bodyParser.json())
 
-  // 👇 ESTA ES LA RUTA MÁGICA
+  // Ruta de verificación
   router.post("/store/verify-email", async (req, res) => {
     const { token } = req.body
-    
-    // El secreto debe ser el mismo que usaremos para firmar (usamos el cookie_secret por defecto)
     const jwtSecret = process.env.JWT_SECRET || process.env.COOKIE_SECRET || "supersecret"
 
     try {
-      // 1. Desciframos el token
       const decoded: any = jwt.verify(token, jwtSecret)
       const email = decoded.email
 
-      // 2. Buscamos al cliente
       const customerService: CustomerService = req.scope.resolve("customerService")
       const customer = await customerService.retrieveByEmail(email)
 
@@ -40,7 +38,6 @@ export default (rootDirectory) => {
         return res.status(404).json({ message: "Usuario no encontrado" })
       }
 
-      // 3. ¡Lo verificamos! (Actualizamos sus metadatos)
       await customerService.update(customer.id, {
         metadata: {
           ...customer.metadata,
